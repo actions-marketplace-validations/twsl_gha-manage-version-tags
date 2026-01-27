@@ -1,0 +1,66 @@
+name: 'Manage Short Version Tags'
+description: 'Creates or updates shorter version tags (e.g., v1, v1.0) based on a full semantic version tag'
+
+# See: https://docs.github.com/en/actions/creating-actions/metadata-syntax-for-github-actions#branding
+branding:
+  icon: "tag"
+  color: "black"
+
+inputs:
+  token:
+    description: 'GitHub token for authentication'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Run tag management script
+      shell: bash
+      run: |
+        #!/bin/bash
+        set -e
+
+        # Get the tag from the GitHub context
+        TAG="${GITHUB_REF#refs/tags/}"
+        echo "Processing tag: $TAG"
+
+        # Parse the tag using regex to extract major, minor, patch
+        if [[ ! $TAG =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+          echo "Tag $TAG does not match semantic version format (vMAJOR.MINOR.PATCH). Skipping."
+          exit 0
+        fi
+
+        MAJOR="${BASH_REMATCH[1]}"
+        MINOR="${BASH_REMATCH[2]}"
+        PATCH="${BASH_REMATCH[3]}"
+
+        # Get the commit SHA of the current tag
+        COMMIT_SHA=$(git rev-parse "$TAG")
+        echo "Commit SHA for $TAG: $COMMIT_SHA"
+
+        # Shorter tags to create/update
+        SHORT_TAGS=("v${MAJOR}" "v${MAJOR}.${MINOR}")
+
+        # Set up git config
+        git config --global user.name 'github-actions[bot]'
+        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+        # Create or update each short tag
+        for SHORT_TAG in "${SHORT_TAGS[@]}"; do
+          echo "Processing short tag: $SHORT_TAG"
+
+          # Check if tag exists
+          if git rev-parse --verify "$SHORT_TAG" >/dev/null 2>&1; then
+            echo "Tag $SHORT_TAG exists. Updating to point to $COMMIT_SHA."
+            git tag -f "$SHORT_TAG" "$COMMIT_SHA"
+          else
+            echo "Tag $SHORT_TAG does not exist. Creating and pointing to $COMMIT_SHA."
+            git tag "$SHORT_TAG" "$COMMIT_SHA"
+          fi
+
+          # Push the tag
+          git push origin "$SHORT_TAG" --force
+          echo "Pushed tag $SHORT_TAG."
+        done
+
+        echo "All short tags processed successfully."
